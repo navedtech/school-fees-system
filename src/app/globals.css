@@ -1,0 +1,18 @@
+/* Import Tailwind directives */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom global styles */
+body {
+  /* Smooth fonts for better readability */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* Optional: set default font and background */
+  font-family: 'Inter', sans-serif; /* Replace with your preferred font */
+  background-color: #f9fafb; /* Light gray background */
+  color: #111827; /* Default text color */
+  margin: 0;
+  padding: 0;
+}

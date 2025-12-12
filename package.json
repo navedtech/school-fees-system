@@ -1,0 +1,26 @@
+{
+  "name": "school-fees-system",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "lucide-react": "^0.559.0",
+    "mongoose": "^8.20.2",
+    "next": "16.0.8",
+    "next-auth": "^4.24.13",
+    "react": "18",
+    "react-dom": "18"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.22",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19"
+  }
+}
