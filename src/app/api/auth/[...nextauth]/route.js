@@ -1,13 +1,10 @@
-// src/app/api/auth/[...nextauth]/route.js
-
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import dbConnect from '@/lib/mongodb'; // अपने DB connection path को यहाँ एडजस्ट करें
+import dbConnect from '@/lib/mongodb'; 
 import User from '@/models/User';
 import bcrypt from 'bcryptjs';
 
 const authOptions = {
-  // 1. ऑथेंटिकेशन प्रोवाइडर (ईमेल/पासवर्ड लॉगिन के लिए CredentialsProvider)
   providers: [
     CredentialsProvider({
       name: 'Credentials',
@@ -15,44 +12,41 @@ const authOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" }
       },
-      async authorize(credentials, req) {
-        await dbConnect(); // DB से कनेक्ट करें
+      async authorize(credentials) {
+        await dbConnect(); 
 
-        // 1.1. यूजर को ईमेल से खोजें
+        // 1. User ko email se dhoondein
         const user = await User.findOne({ email: credentials.email }).lean();
 
-        if (user) {
-          // 1.2. पासवर्ड मैच करें
-          const isMatch = await bcrypt.compare(credentials.password, user.password);
-
-          if (isMatch) {
-            // 1.3. अगर पासवर्ड सही है, तो यूजर ऑब्जेक्ट रिटर्न करें
-            return {
-              id: user._id.toString(), // NextAuth को string ID चाहिए
-              name: user.name,
-              email: user.email,
-              role: user.role // रोल भी सेशन में भेजें
-            };
-          }
+        // 2. AGAR USER NAHI MILA (Corrected Logic: !user)
+        if (!user) {
+          throw new Error("No user found with this email");
         }
-        // अगर ऑथेंटिकेशन फेल हुआ
-        return null;
+
+        // 3. Password check karein
+        const isMatch = await bcrypt.compare(credentials.password, user.password);
+
+        if (!isMatch) {
+          throw new Error("Invalid password");
+        }
+
+        // 4. Sab sahi hai toh user object return karein
+        return {
+          id: user._id.toString(), 
+          name: user.name,
+          email: user.email,
+          role: user.role 
+        };
       }
     })
   ],
-  
-  // 2. सेशन कॉन्फ़िगरेशन
   session: {
     strategy: 'jwt',
   },
-  
-  // 3. पेज कॉन्फ़िगरेशन
   pages: {
-    signIn: '/login', // वह पेज जहाँ यूजर को रीडायरेक्ट किया जाएगा
-    error: '/login', // एरर होने पर
+    signIn: '/login', 
+    error: '/login', 
   },
-  
-  // 4. JWT और सेशन में रोल या अन्य डेटा जोड़ने के लिए कॉलबैक
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
@@ -69,7 +63,6 @@ const authOptions = {
       return session;
     }
   },
-
   secret: process.env.NEXTAUTH_SECRET,
 };
 
