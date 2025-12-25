@@ -1,80 +1,114 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation"; // Next.js 13+ navigation
-import UserMenu from "@/components/UserMenu";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import StudentsForm from "@/components/StudentsForm";
-
+import * as XLSX from 'xlsx'; // Excel export ke liye
 import {
-  Users,
-  CheckCircle,
-  AlertCircle,
-  LayoutDashboard,
-  History,
-  Menu,
-  X,
-  PlusCircle,
-  IndianRupee,
+  Users, CheckCircle, AlertCircle, LayoutDashboard, History, Menu, X,
+  PlusCircle, IndianRupee, Search, Trash2, FileText, LogOut, Bell, TrendingUp, Wallet, Download, SendHorizontal
 } from "lucide-react";
 
-export default function SchoolFeesApp() {
+export default function AdminDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  // States
+  // --- STATES ---
   const [activeTab, setActiveTab] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [students, setStudents] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [isBulkSending, setIsBulkSending] = useState(false);
 
-  // Modal States
+  // Modals
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [showFeeRequestModal, setShowFeeRequestModal] = useState(false);
   const [selectedStudentForRequest, setSelectedStudentForRequest] = useState(null);
   const [requestAmount, setRequestAmount] = useState("");
 
-  // --- 1. DATA FETCHING LOGIC (Perfectly Synced) ---
+  // --- FETCH DATA ---
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Dono API ko ek sath call kar rahe hain
       const [studentsRes, feesRes] = await Promise.all([
         fetch("/api/students"),
         fetch("/api/fees")
       ]);
-      
       const sData = await studentsRes.json();
       const tData = await feesRes.json();
-      
-      // Console logs debugging ke liye (Check terminal if data is coming)
-      console.log("Fetched Students:", sData);
-      console.log("Fetched Transactions:", tData);
-
-      // Data format handling: Array check zaroori hai
       setStudents(Array.isArray(sData) ? sData : []);
       setTransactions(Array.isArray(tData) ? tData : []);
-
     } catch (err) {
-      console.error("Dashboard Fetch Error:", err);
-      setMessage({ type: "error", text: "Failed to load data from server" });
+      setMessage({ type: "error", text: "Failed to sync with database" });
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // --- 2. AUTHENTICATION & INITIAL FETCH ---
   useEffect(() => {
-    if (status === "unauthenticated") {
-      router.push("/login");
-    } else if (status === "authenticated") {
-      fetchData();
-    }
+    if (status === "unauthenticated") router.push("/login");
+    else if (status === "authenticated") fetchData();
   }, [status, fetchData, router]);
 
-  // --- 3. FEE REQUEST LOGIC ---
+  // --- ACTIONS ---
+
+  // 1. EXCEL EXPORT
+  const exportToExcel = () => {
+    const dataToExport = students.map(s => ({
+      "Roll No": s.rollNo,
+      "Name": s.name,
+      "Class": s.class,
+      "Total Fees": s.totalFees,
+      "Paid Fees": s.paidFees,
+      "Balance": s.totalFees - s.paidFees,
+      "Status": (s.totalFees - s.paidFees) <= 0 ? "Settled" : "Pending"
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "StudentsData");
+    XLSX.writeFile(workbook, "School_Fees_Report.xlsx");
+  };
+
+  const handleRemoveStudent = async (id) => {
+    if (!confirm("Are you sure you want to remove this student?")) return;
+    try {
+      const res = await fetch(`/api/students?id=${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setStudents(students.filter(s => s._id !== id));
+        setMessage({ type: "success", text: "Student removed successfully" });
+      }
+    } catch (err) {
+      setMessage({ type: "error", text: "Delete failed" });
+    }
+    setTimeout(() => setMessage(null), 3000);
+  };
+
+  // 2. BULK REQUEST WITH REPEAT CONTROL
+  const sendBulkRequests = async () => {
+    const pendingStudents = students.filter(s => (s.totalFees - s.paidFees) > 0 && !s.isRequestSent);
+    if (pendingStudents.length === 0) return alert("All requests already sent or no pending fees.");
+    
+    if (!confirm(`Send requests to ${pendingStudents.length} students?`)) return;
+
+    setIsBulkSending(true);
+    try {
+      for (const student of pendingStudents) {
+        await fetch("/api/fee-request", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ studentId: student._id, amount: student.totalFees - student.paidFees }),
+        });
+      }
+      setMessage({ type: "success", text: "Bulk requests sent!" });
+      fetchData();
+    } catch (err) { setMessage({ type: "error", text: "Failed" }); }
+    finally { setIsBulkSending(false); setTimeout(() => setMessage(null), 3000); }
+  };
+
   const sendFeeRequest = async () => {
     if (!requestAmount || !selectedStudentForRequest) return;
     try {
@@ -86,191 +120,231 @@ export default function SchoolFeesApp() {
           amount: Number(requestAmount),
         }),
       });
-
       if (res.ok) {
-        setMessage({ type: "success", text: "Fee request sent successfully!" });
+        setMessage({ type: "success", text: "Request sent!" });
         setShowFeeRequestModal(false);
         setRequestAmount("");
-        fetchData(); // Refresh data
+        fetchData();
       }
-    } catch (err) {
-      setMessage({ type: "error", text: "Request failed" });
-    }
+    } catch (err) { setMessage({ type: "error", text: "Failed to send" }); }
     setTimeout(() => setMessage(null), 3000);
   };
 
-  // --- 4. CALCULATIONS ---
+  // --- DATA CALCULATIONS ---
+  const filteredStudents = students.filter(s => 
+    s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    s.rollNo.toString().includes(searchTerm)
+  );
+
   const totalCollection = transactions.reduce((sum, t) => sum + (t.amount || 0), 0);
   const totalPending = students.reduce((sum, s) => sum + ((s.totalFees || 0) - (s.paidFees || 0)), 0);
+  const totalExpected = totalCollection + totalPending;
+  const collectionEfficiency = totalExpected > 0 ? Math.round((totalCollection / totalExpected) * 100) : 0;
+  
+  const paidCount = students.filter(s => (s.totalFees - s.paidFees) <= 0).length;
+  const pendingCount = students.length - paidCount;
 
-  if (status === "loading" || isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="text-center font-bold text-indigo-600 animate-pulse">Loading Dashboard Data...</div>
-      </div>
-    );
-  }
+  const adminName = session?.user?.name || "Admin";
+  const avatarLetter = adminName.charAt(0).toUpperCase();
+
+  if (status === "loading" || isLoading) return <div className="h-screen flex items-center justify-center bg-[#F8FAFC] text-slate-400 font-bold tracking-widest uppercase text-sm">Loading System Data...</div>;
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
+    <div className="flex min-h-screen bg-[#F8FAFC]">
       {/* SIDEBAR */}
-      <aside className={`${sidebarOpen ? "w-64" : "w-0 overflow-hidden"} bg-slate-900 text-white transition-all duration-300 flex flex-col`}>
-        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-indigo-400">Fees System</h1>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden"><X /></button>
+      <aside className={`${sidebarOpen ? "w-72" : "w-16 lg:w-20"} bg-[#0F172A] text-slate-300 transition-all duration-300 flex flex-col shadow-2xl z-50 sticky top-0 h-screen overflow-hidden`}>
+        <div className="p-4 lg:p-6 flex items-center gap-3 border-b border-slate-800 shrink-0">
+          <div className="mx-auto lg:mx-0">
+            <img src="https://png.pngtree.com/png-clipart/20211017/original/pngtree-school-logo-png-image_6851480.png" alt="School Logo" className="w-10 h-10 rounded-full object-cover" />
+          </div>
+          {sidebarOpen && <h1 className="font-bold text-white text-lg tracking-tight truncate">Admin Fees system</h1>}
         </div>
-        <nav className="flex-1 p-4 space-y-2">
-          <button onClick={() => setActiveTab("dashboard")} className={`w-full p-3 rounded-xl flex items-center gap-3 ${activeTab === "dashboard" ? "bg-indigo-600 shadow-lg shadow-indigo-500/20" : "hover:bg-slate-800"}`}><LayoutDashboard size={20} /> Dashboard</button>
-          <button onClick={() => setActiveTab("students")} className={`w-full p-3 rounded-xl flex items-center gap-3 ${activeTab === "students" ? "bg-indigo-600" : "hover:bg-slate-800"}`}><Users size={20} /> Students</button>
-          <button onClick={() => setActiveTab("transactions")} className={`w-full p-3 rounded-xl flex items-center gap-3 ${activeTab === "transactions" ? "bg-indigo-600" : "hover:bg-slate-800"}`}><History size={20} /> Transactions</button>
+        <nav className="flex-1 p-2 lg:p-4 mt-4 space-y-2 overflow-y-auto custom-scrollbar">
+          {[
+            { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+            { id: "students", label: "Students", icon: Users },
+            { id: "transactions", label: "Transactions", icon: History },
+            { id: "summary", label: "Fees Summary", icon: FileText },
+          ].map((item) => (
+            <button key={item.id} onClick={() => { setActiveTab(item.id); setSearchTerm(""); }} className={`w-full flex items-center ${sidebarOpen ? "px-4 justify-start" : "justify-center"} py-3.5 rounded-xl transition-all ${activeTab === item.id ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20" : "hover:bg-slate-800 hover:text-white"}`}>
+              <item.icon size={20} /> {sidebarOpen && <span className="font-medium ml-4">{item.label}</span>}
+            </button>
+          ))}
         </nav>
-        <div className="p-4 border-t border-slate-800"><UserMenu /></div>
+        <div className="p-4 border-t border-slate-800 mt-auto">
+           <button onClick={() => signOut()} className={`flex items-center ${sidebarOpen ? "px-4 justify-start" : "justify-center"} py-3 w-full text-red-400 hover:bg-red-500/10 rounded-xl transition-all font-bold`}><LogOut size={20}/> {sidebarOpen && <span className="ml-4">Logout</span>}</button>
+        </div>
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 p-6 lg:p-10 overflow-auto">
-        {!sidebarOpen && <button onClick={() => setSidebarOpen(true)} className="mb-6 bg-white p-2 rounded-lg shadow"><Menu /></button>}
-
-        {message && (
-          <div className={`mb-6 p-4 rounded-xl font-medium ${message.type === "success" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{message.text}</div>
-        )}
-
-        {/* DASHBOARD CARDS */}
-        {activeTab === "dashboard" && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                <div className="bg-indigo-100 w-12 h-12 rounded-2xl flex items-center justify-center text-indigo-600 mb-4"><Users size={24}/></div>
-                <p className="text-slate-500 text-sm font-semibold">Total Students</p>
-                <p className="text-3xl font-black">{students.length}</p>
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+        {/* HEADER */}
+        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 px-4 lg:px-8 flex items-center justify-between sticky top-0 z-40 shrink-0">
+          <div className="flex items-center gap-2 lg:gap-4 flex-1">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-600"><Menu size={22}/></button>
+            {(activeTab === "students" || activeTab === "transactions") && (
+              <div className="relative w-full max-w-[180px] sm:max-w-md ml-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16}/><input type="text" placeholder="Search..." className="w-full pl-9 pr-4 py-2 bg-slate-100 border-transparent rounded-xl focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none text-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               </div>
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                <div className="bg-green-100 w-12 h-12 rounded-2xl flex items-center justify-center text-green-600 mb-4"><IndianRupee size={24}/></div>
-                <p className="text-slate-500 text-sm font-semibold">Total Collection</p>
-                <p className="text-3xl font-black text-green-600">₹{totalCollection.toLocaleString()}</p>
-              </div>
-              <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-                <div className="bg-red-100 w-12 h-12 rounded-2xl flex items-center justify-center text-red-600 mb-4"><AlertCircle size={24}/></div>
-                <p className="text-slate-500 text-sm font-semibold">Pending Fees</p>
-                <p className="text-3xl font-black text-red-600">₹{totalPending.toLocaleString()}</p>
-              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3 lg:gap-6">
+            <button className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full"><Bell size={20}/><span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span></button>
+            <div className="flex items-center gap-3 pl-3 lg:pl-6 border-l">
+              <div className="text-right hidden md:block"><p className="text-sm font-bold text-slate-900 leading-none">{adminName}</p><p className="text-[10px] text-slate-500 uppercase font-bold mt-1">Admin</p></div>
+              <div className="w-9 h-9 lg:w-10 lg:h-10 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold">{avatarLetter}</div>
             </div>
+          </div>
+        </header>
 
-            {/* QUICK VIEW TABLE */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-               <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
-                  <h2 className="text-lg font-bold flex items-center gap-2"><History className="text-indigo-600"/> Recent Transactions</h2>
-               </div>
-               <div className="overflow-x-auto">
+        <main className="p-4 lg:p-8">
+          {message && (
+            <div className={`mb-6 p-4 rounded-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 ${message.type === "success" ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-red-50 text-red-700 border-red-100"}`}>
+              {message.type === "success" ? <CheckCircle size={18}/> : <AlertCircle size={18}/>} <span className="text-sm font-semibold">{message.text}</span>
+            </div>
+          )}
+          
+          {/* TAB CONTENT: DASHBOARD */}
+          {activeTab === "dashboard" && (
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard icon={Users} color="indigo" label="Total Students" value={students.length} />
+                <StatCard icon={IndianRupee} color="emerald" label="Total Collection" value={`₹${totalCollection.toLocaleString()}`} />
+                <StatCard icon={AlertCircle} color="rose" label="Pending Amount" value={`₹${totalPending.toLocaleString()}`} />
+              </div>
+              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-6 border-b flex justify-between items-center"><h3 className="font-bold text-slate-800 flex items-center gap-2"><History size={18} className="text-indigo-600"/> Recent Transactions</h3><button onClick={() => setActiveTab("transactions")} className="text-indigo-600 text-sm font-bold hover:underline">View All</button></div>
+                <div className="overflow-x-auto">
                   <table className="w-full text-left">
-                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider">
-                      <tr>
-                        <th className="px-6 py-4 text-center">Date</th>
-                        <th className="px-6 py-4">Student</th>
-                        <th className="px-6 py-4 text-center">Amount</th>
-                        <th className="px-6 py-4 text-center">Mode</th>
-                      </tr>
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold">
+                      <tr><th className="px-6 py-4">Date</th><th className="px-6 py-4">Student</th><th className="px-6 py-4">Amount</th><th className="px-6 py-4">Status</th></tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {transactions.slice(0, 10).map((t) => (
+                      {transactions.slice(0, 5).map((t) => (
                         <tr key={t._id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-6 py-4 text-center text-sm">{new Date(t.date).toLocaleDateString()}</td>
-                          <td className="px-6 py-4 font-bold text-slate-800">{t.studentName}</td>
-                          <td className="px-6 py-4 text-center font-black text-green-600">₹{t.amount}</td>
-                          <td className="px-6 py-4 text-center text-sm font-medium"><span className="bg-slate-100 px-3 py-1 rounded-full">{t.paymentMode}</span></td>
+                          <td className="px-6 py-4 text-sm text-slate-500">{new Date(t.date).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 font-semibold text-slate-700">{t.studentName}</td>
+                          <td className="px-6 py-4 font-bold text-emerald-600">₹{t.amount}</td>
+                          <td className="px-6 py-4"><span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase">Paid</span></td>
                         </tr>
                       ))}
-                      {transactions.length === 0 && (
-                        <tr><td colSpan="4" className="text-center py-10 text-slate-400">No transactions found yet.</td></tr>
-                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB CONTENT: STUDENTS */}
+          {activeTab === "students" && (
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-6 border-b flex flex-wrap gap-4 justify-between items-center bg-white">
+                <h2 className="text-xl font-bold text-slate-800">Student Directory</h2>
+                <div className="flex gap-2">
+                  <button onClick={exportToExcel} className="bg-emerald-50 text-emerald-600 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-600 hover:text-white transition-all text-sm"><Download size={18}/> Export Excel</button>
+                  <button onClick={sendBulkRequests} disabled={isBulkSending} className="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all text-sm"><SendHorizontal size={18}/> {isBulkSending ? "Sending..." : "Send All Requests"}</button>
+                  <button onClick={() => setShowAddStudentModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all"><PlusCircle size={18}/> Add Student</button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-slate-50 text-slate-400 text-[10px] uppercase font-black">
+                    <tr><th className="px-6 py-4 text-left">Student Info</th><th className="px-6 py-4 text-center">Class</th><th className="px-6 py-4 text-center">Status</th><th className="px-6 py-4 text-right">Balance</th><th className="px-6 py-4 text-right">Actions</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredStudents.map((s) => {
+                      const balance = (s.totalFees || 0) - (s.paidFees || 0);
+                      return (
+                        <tr key={s._id} className="hover:bg-slate-50 group transition-all">
+                          <td className="px-6 py-5">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 bg-slate-100 rounded-full flex items-center justify-center font-bold text-slate-500 text-xs">{s.name.charAt(0)}</div>
+                              <div><p className="font-bold text-slate-800 leading-tight">{s.name}</p>{s.isRequestSent && <span className="text-[9px] text-indigo-500 font-bold uppercase">Requested</span>}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 text-center font-bold text-slate-600 text-sm">{s.class}</td>
+                          <td className="px-6 py-5 text-center"><span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${balance <= 0 ? "bg-emerald-100 text-emerald-600" : "bg-amber-100 text-amber-600"}`}>{balance <= 0 ? "Settled" : "Pending"}</span></td>
+                          <td className="px-6 py-5 text-right font-black text-slate-900">₹{balance}</td>
+                          <td className="px-6 py-5 text-right space-x-2">
+                            <button disabled={s.isRequestSent || balance <= 0} onClick={() => { setSelectedStudentForRequest(s); setShowFeeRequestModal(true); }} className={`text-xs font-bold px-4 py-2 rounded-lg transition-all ${s.isRequestSent ? "bg-slate-100 text-slate-400" : "bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white"}`}>{s.isRequestSent ? "Sent" : "Request"}</button>
+                            <button onClick={() => handleRemoveStudent(s._id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB CONTENT: TRANSACTIONS (Pura code restore kiya h) */}
+          {activeTab === "transactions" && (
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+               <div className="p-6 border-b flex justify-between items-center"><h2 className="text-xl font-bold text-slate-800">Transaction History</h2><button onClick={exportToExcel} className="p-2 border rounded-lg text-emerald-600 hover:bg-emerald-50"><Download size={18}/></button></div>
+               <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-500 text-[10px] uppercase font-bold tracking-widest">
+                      <tr><th className="px-6 py-4">ID</th><th className="px-6 py-4">Date</th><th className="px-6 py-4">Student</th><th className="px-6 py-4">Mode</th><th className="px-6 py-4 text-right">Amount</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {transactions.filter(t => t.studentName.toLowerCase().includes(searchTerm.toLowerCase())).map((t) => (
+                        <tr key={t._id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 text-xs font-mono text-slate-400">{t._id.slice(-6).toUpperCase()}</td>
+                          <td className="px-6 py-4 text-sm text-slate-600">{new Date(t.date).toLocaleDateString()}</td>
+                          <td className="px-6 py-4 font-bold text-slate-800">{t.studentName}</td>
+                          <td className="px-6 py-4"><span className="text-[10px] bg-slate-100 px-2 py-1 rounded-full font-black text-slate-600 uppercase">{t.paymentMode || "Paid"}</span></td>
+                          <td className="px-6 py-4 text-right font-black text-emerald-600">₹{t.amount}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* STUDENTS TAB */}
-        {activeTab === "students" && (
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-             <div className="p-6 border-b flex justify-between items-center bg-slate-50/50">
-                <h2 className="text-lg font-bold">Manage Students</h2>
-                <button onClick={() => setShowAddStudentModal(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all"><PlusCircle size={18}/> Add Student</button>
-             </div>
-             <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold tracking-wider">
-                    <tr>
-                      <th className="px-6 py-4 text-left">Student Info</th>
-                      <th className="px-6 py-4 text-center">Class</th>
-                      <th className="px-6 py-4 text-right">Balance Due</th>
-                      <th className="px-6 py-4 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {students.map((s) => (
-                      <tr key={s._id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4">
-                          <p className="font-bold text-slate-800 leading-none">{s.name}</p>
-                          <small className="text-slate-400 font-medium">Roll: {s.rollNo}</small>
-                        </td>
-                        <td className="px-6 py-4 text-center font-bold text-indigo-600 bg-indigo-50/30">{s.class}</td>
-                        <td className="px-6 py-4 text-right font-black text-red-600">₹{(s.totalFees || 0) - (s.paidFees || 0)}</td>
-                        <td className="px-6 py-4 text-center">
-                          <button onClick={() => { setSelectedStudentForRequest(s); setShowFeeRequestModal(true); }} className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-indigo-600 transition-all">Request Fee</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-             </div>
-          </div>
-        )}
-
-        {/* FULL TRANSACTIONS TAB */}
-        {activeTab === "transactions" && (
-           <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-             <div className="p-6 border-b bg-slate-50/50"><h2 className="text-lg font-bold">All Transactions</h2></div>
-             <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-slate-50 text-slate-500 text-xs font-bold tracking-wider uppercase">
-                    <tr>
-                      <th className="px-6 py-4 text-center">Date</th>
-                      <th className="px-6 py-4">Student</th>
-                      <th className="px-6 py-4 text-center">Amount</th>
-                      <th className="px-6 py-4 text-center">Payment Mode</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {transactions.map((t) => (
-                      <tr key={t._id} className="hover:bg-slate-50">
-                        <td className="px-6 py-4 text-center text-sm">{new Date(t.date).toLocaleDateString()}</td>
-                        <td className="px-6 py-4 font-bold">{t.studentName}</td>
-                        <td className="px-6 py-4 text-center font-black text-green-600">₹{t.amount}</td>
-                        <td className="px-6 py-4 text-center"><span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold uppercase">{t.paymentMode}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-             </div>
-           </div>
-        )}
-      </main>
+          {/* TAB CONTENT: SUMMARY (Visual Graphic) */}
+          {activeTab === "summary" && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm text-center">
+                <h3 className="text-lg font-black text-slate-800 mb-8">Collection Efficiency</h3>
+                <div className="relative inline-block">
+                  <svg className="w-48 h-48 transform -rotate-90"><circle cx="96" cy="96" r="80" stroke="#f1f5f9" strokeWidth="16" fill="transparent" /><circle cx="96" cy="96" r="80" stroke="#4f46e5" strokeWidth="16" fill="transparent" strokeDasharray={502} strokeDashoffset={502 - (502 * collectionEfficiency) / 100} strokeLinecap="round" /></svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center font-black text-slate-800"><span className="text-4xl">{collectionEfficiency}%</span><span className="text-[10px] uppercase text-slate-400">Collected</span></div>
+                </div>
+              </div>
+              <div className="bg-[#0F172A] p-8 rounded-[2rem] text-white space-y-6">
+                <h3 className="text-lg font-bold">Quick Insights</h3>
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/10"><p className="text-slate-400 text-xs font-bold uppercase">Pending Students</p><p className="text-2xl font-black text-amber-400">{pendingCount}</p></div>
+                <div className="p-4 bg-white/5 rounded-2xl border border-white/10"><p className="text-slate-400 text-xs font-bold uppercase">Settled Accounts</p><p className="text-2xl font-black text-emerald-400">{paidCount}</p></div>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
 
       {/* MODALS */}
       {showAddStudentModal && <StudentsForm onClose={() => { setShowAddStudentModal(false); fetchData(); }} />}
       {showFeeRequestModal && selectedStudentForRequest && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-          <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl relative">
-            <button onClick={() => setShowFeeRequestModal(false)} className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 text-2xl font-bold">&times;</button>
-            <h3 className="text-xl font-bold mb-1">Create Fee Request</h3>
-            <p className="text-sm text-slate-500 mb-6 italic">Student: {selectedStudentForRequest.name}</p>
-            <label className="text-xs font-bold text-slate-500 uppercase ml-1">Amount (₹)</label>
-            <input type="number" value={requestAmount} onChange={(e) => setRequestAmount(e.target.value)} className="w-full border-2 border-slate-100 p-4 rounded-2xl mb-6 focus:border-indigo-500 outline-none text-xl font-bold" placeholder="0.00" />
-            <button onClick={sendFeeRequest} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">Send Request</button>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-[2.5rem] p-10 w-full max-w-sm shadow-2xl">
+            <h3 className="text-2xl font-black text-slate-800 mb-2">Create Request</h3>
+            <p className="text-slate-400 text-sm mb-8">Student: {selectedStudentForRequest.name}</p>
+            <input type="number" value={requestAmount} onChange={(e) => setRequestAmount(e.target.value)} className="w-full bg-slate-50 border-2 border-transparent p-5 rounded-2xl mb-8 focus:border-indigo-500 outline-none text-2xl font-black" placeholder="0.00" autoFocus />
+            <div className="flex gap-4"><button onClick={() => setShowFeeRequestModal(false)} className="flex-1 py-4 font-bold text-slate-400">Cancel</button><button onClick={sendFeeRequest} className="flex-[2] bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-xl">Send Now</button></div>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, color, label, value }) {
+  const colors = { indigo: "bg-indigo-50 text-indigo-600", emerald: "bg-emerald-50 text-emerald-600", rose: "bg-rose-50 text-rose-600" };
+  return (
+    <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm flex items-center gap-6">
+      <div className={`${colors[color]} p-4 rounded-2xl`}><Icon size={28}/></div>
+      <div><p className="text-slate-400 text-xs font-black uppercase mb-1">{label}</p><p className="text-3xl font-black text-slate-800 tracking-tight">{value}</p></div>
     </div>
   );
 }

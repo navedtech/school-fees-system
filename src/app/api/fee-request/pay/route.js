@@ -5,26 +5,43 @@ import FeeTransaction from "@/models/FeeTransaction";
 import Student from "@/models/Student";
 
 export async function POST(req) {
-  await connectDB();
-  const { requestId, paymentMode } = await req.json();
+  try {
+    await connectDB();
+    const { requestId, paymentMode } = await req.json();
 
-  const request = await FeeRequest.findById(requestId).populate("studentId");
+    if (!requestId || !paymentMode) {
+      return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    }
 
-  request.status = "paid";
-  request.paymentMode = paymentMode;
-  request.paidAt = new Date();
-  await request.save();
+    // Request dhoondein aur student data load karein
+    const request = await FeeRequest.findById(requestId).populate("studentId");
 
-  await FeeTransaction.create({
-    studentId: request.studentId._id,
-    studentName: request.studentId.name,
-    amount: request.amount,
-    paymentMode,
-  });
+    if (!request) {
+      return NextResponse.json({ error: "Request not found" }, { status: 404 });
+    }
 
-  await Student.findByIdAndUpdate(request.studentId._id, {
-    $inc: { paidFees: request.amount },
-  });
+    // ✅ Status update (paid - capital P ka dhyan rakhein agar zaroori ho)
+    request.status = "paid"; 
+    request.paymentMode = paymentMode;
+    request.paidAt = new Date();
+    await request.save();
 
-  return NextResponse.json({ success: true });
+    // Transaction record banayein
+    await FeeTransaction.create({
+      studentId: request.studentId._id,
+      studentName: request.studentId.name,
+      amount: request.amount,
+      paymentMode,
+    });
+
+    // Student model mein paidFees update karein
+    await Student.findByIdAndUpdate(request.studentId._id, {
+      $inc: { paidFees: request.amount },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("PAY_API_ERROR:", error);
+    return NextResponse.json({ error: "Server Error" }, { status: 500 });
+  }
 }
