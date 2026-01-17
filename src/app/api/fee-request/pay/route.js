@@ -13,20 +13,20 @@ export async function POST(req) {
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
     }
 
-    // Request dhoondein aur student data load karein
+    // 1️⃣ Find request + student
     const request = await FeeRequest.findById(requestId).populate("studentId");
 
     if (!request) {
       return NextResponse.json({ error: "Request not found" }, { status: 404 });
     }
 
-    // ✅ Status update (paid - capital P ka dhyan rakhein agar zaroori ho)
-    request.status = "paid"; 
+    // 2️⃣ Mark request as PAID
+    request.status = "Paid"; // ✅ CAPITAL P
     request.paymentMode = paymentMode;
     request.paidAt = new Date();
     await request.save();
 
-    // Transaction record banayein
+    // 3️⃣ Create transaction record
     await FeeTransaction.create({
       studentId: request.studentId._id,
       studentName: request.studentId.name,
@@ -34,10 +34,15 @@ export async function POST(req) {
       paymentMode,
     });
 
-    // Student model mein paidFees update karein
-    await Student.findByIdAndUpdate(request.studentId._id, {
-      $inc: { paidFees: request.amount },
-    });
+    // 4️⃣ 🔥 MOST IMPORTANT FIX
+    await Student.findByIdAndUpdate(
+      request.studentId._id,
+      {
+        $inc: { paidFees: request.amount }, // ✅ update paidFees
+        isRequestSent: false,                // ✅ allow next request
+      },
+      { new: true }
+    );
 
     return NextResponse.json({ success: true });
   } catch (error) {

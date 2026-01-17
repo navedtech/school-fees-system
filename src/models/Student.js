@@ -1,29 +1,58 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
-const StudentSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: [true, 'Please provide a name'],
-  },
-  rollNo: {
-    type: String,
-    required: [true, 'Please provide a Roll Number'],
-    unique: true,
-  },
-  class: {
-    type: String,
-    required: true,
-  },
-  parentName: String,
-  contact: String,
-  totalFees: {
-    type: Number,
-    required: true,
-  },
-  paidFees: {
-    type: Number,
-    default: 0,
-  },
-}, { timestamps: true });
+const StudentSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-export default mongoose.models.Student || mongoose.model('Student', StudentSchema);
+    rollNo: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    class: {
+      type: String,
+      required: true,
+    },
+
+    session: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    parentName: {
+      type: String,
+      default: "",
+    },
+
+    contact: {
+      type: String,
+      default: "",
+    },
+
+    totalFees: {
+      type: Number,
+      required: true,
+    },
+
+    paidFees: {
+      type: Number,
+      default: 0,
+    },
+  },
+  { timestamps: true }
+);
+
+/* ✅ COMPOUND UNIQUE (REAL FIX) */
+StudentSchema.index(
+  { rollNo: 1, class: 1, session: 1 },
+  { unique: true }
+);
+
+export default mongoose.models.Student ||
+  mongoose.model("Student", StudentSchema);

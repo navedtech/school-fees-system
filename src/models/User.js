@@ -10,7 +10,7 @@ const UserSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Please provide an email.'],
-    unique: true, // सुनिश्चित करता है कि हर ईमेल अलग हो
+    unique: true, //
   },
   password: {
     type: String,

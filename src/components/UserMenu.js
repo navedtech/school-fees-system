@@ -10,7 +10,9 @@ export default function UserMenu() {
     return (
         <div className="flex flex-col items-center p-2">
             
-            {/* यह हिस्सा अब 'A' आइकॉन को हटाकर यूज़र की जानकारी दिखाता है */}
+            {
+                /* User Info */
+            }
             <div className="flex items-center mb-2 gap-2 justify-center">
                  <UserCircle size={20} className="text-indigo-400" />
                  <p className="text-sm font-semibold text-slate-300">

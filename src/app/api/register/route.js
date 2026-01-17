@@ -25,7 +25,7 @@ export async function POST(request) {
       name,
       email,
       password: hashedPassword,
-      role: 'admin', n
+      role: 'admin'
     });
 
     return Response.json({ message: "User registered successfully!", userId: newUser._id }, { status: 201 });

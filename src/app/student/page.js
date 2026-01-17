@@ -1,23 +1,24 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { 
-  CheckCircle, LogOut, LayoutDashboard, UserCircle, 
+import {
+  CheckCircle, LogOut, LayoutDashboard, UserCircle,
   ReceiptIndianRupee, BellRing, Menu, X, CreditCard, Landmark, Send, History, Download
 } from "lucide-react";
 
 // --- FIXED IMPORTS ---
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable"; 
+import autoTable from "jspdf-autotable";
 
 export default function StudentDashboard() {
   const [student, setStudent] = useState(null);
   const [feeRequests, setFeeRequests] = useState([]);
-  const [transactions, setTransactions] = useState([]); 
+  const [transactions, setTransactions] = useState([]);
   const [message, setMessage] = useState("");
   const [mounted, setMounted] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [activeTab, setActiveTab] = useState("dashboard");
+
 
   const [showBankForm, setShowBankForm] = useState(false);
   const [selectedRequestId, setSelectedRequestId] = useState(null);
@@ -36,7 +37,25 @@ export default function StudentDashboard() {
     }
     try {
       const parsed = JSON.parse(stored);
-      setStudent(parsed);
+            // 🔥 ALWAYS FETCH LATEST STUDENT FROM DB
+      fetch(`/api/students`)
+        .then(res => res.json())
+        .then(allStudents => {
+          const freshStudent = allStudents.find(
+            s => String(s._id) === String(parsed._id)
+          );
+
+          if (!freshStudent) {
+            localStorage.removeItem("student");
+            window.location.href = "/student/login";
+            return;
+          }
+
+          setStudent(freshStudent);
+
+          // ✅ update localStorage also
+          localStorage.setItem("student", JSON.stringify(freshStudent));
+        });
     } catch (err) {
       window.location.href = "/student/login";
     }
@@ -51,8 +70,10 @@ export default function StudentDashboard() {
       ]);
       const reqData = await reqRes.json();
       const transData = await transRes.json();
+      const myTransactions = Array.isArray(transData) ? transData.filter(t => String(t.studentId) === String(student._id)) : [];
+      setTransactions(myTransactions);
       setFeeRequests(Array.isArray(reqData) ? reqData : []);
-      setTransactions(Array.isArray(transData) ? transData : []);
+
     } catch (err) {
       console.error("Fetch error");
     }
@@ -67,19 +88,19 @@ export default function StudentDashboard() {
   // --- FIXED PDF GENERATOR ---
   const downloadSlip = (t) => {
     const doc = new jsPDF();
-    
+
     // Header
     doc.setFontSize(20);
     doc.setTextColor(63, 81, 181); // Indigo
     doc.text("FEES PAYMENT RECEIPT", 105, 20, { align: "center" });
-    
+
     // Details
     doc.setFontSize(12);
     doc.setTextColor(40);
     doc.text(`Student Name: ${student.name}`, 20, 40);
     doc.text(`Roll No: ${student.rollNo}`, 20, 50);
     doc.text(`Class: ${student.class}`, 20, 60);
-    
+
     // Table - Using the correct function call
     autoTable(doc, {
       startY: 70,
@@ -154,17 +175,91 @@ export default function StudentDashboard() {
                 <p className="mt-2 opacity-80">Check your fees and notices here.</p>
               </div>
             )}
-
             {activeTab === "details" && (
-              <div className="bg-white p-6 rounded-3xl shadow border">
-                <h2 className="text-xl font-bold mb-4">My Profile</h2>
-                <div className="space-y-3">
-                  <p className="border-b pb-2"><b>Name:</b> {student.name}</p>
-                  <p className="border-b pb-2"><b>Class:</b> {student.class}</p>
-                  <p className="border-b pb-2"><b>Roll No:</b> {student.rollNo}</p>
+              <div className="space-y-6">
+
+                {/* Header Card */}
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 rounded-3xl text-white shadow-lg">
+                  <h2 className="text-2xl font-black">Student Profile</h2>
+                  <p className="opacity-80 mt-1">Personal & academic details</p>
+                </div>
+
+                {/* Main Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                  {/* Personal Info */}
+                  <div className="bg-white p-6 rounded-3xl shadow border">
+                    <h3 className="font-bold text-slate-800 mb-4 text-lg">👤 Personal Information</h3>
+                    <div className="space-y-3 text-sm">
+                      <p className="flex justify-between border-b pb-2">
+                        <span className="text-slate-500">Name</span>
+                        <span className="font-bold">{student.name}</span>
+                      </p>
+                      <p className="flex justify-between border-b pb-2">
+                        <span className="text-slate-500">Email</span>
+                        <span className="font-bold">{student.email || "N/A"}</span>
+                      </p>
+                      <p className="flex justify-between">
+                        <span className="text-slate-500">Role</span>
+                        <span className="font-bold capitalize">{student.role || "Student"}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Academic Info */}
+                  <div className="bg-white p-6 rounded-3xl shadow border">
+                    <h3 className="font-bold text-slate-800 mb-4 text-lg">🎓 Academic Information</h3>
+                    <div className="space-y-3 text-sm">
+                      <p className="flex justify-between border-b pb-2">
+                        <span className="text-slate-500">Class</span>
+                        <span className="font-bold">{student.class}</span>
+                      </p>
+                      <p className="flex justify-between border-b pb-2">
+                        <span className="text-slate-500">Roll No</span>
+                        <span className="font-bold">{student.rollNo}</span>
+                      </p>
+                      <p className="flex justify-between">
+                        <span className="text-slate-500">Session</span>
+                        <span className="font-bold"> {student.session}</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Account Status */}
+                  <div className="bg-white p-6 rounded-3xl shadow border">
+                    <h3 className="font-bold text-slate-800 mb-4 text-lg">🔐 Account Status</h3>
+                    <div className="flex flex-wrap gap-3">
+                      <span className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                        Active Account
+                      </span>
+                      <span className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-full text-xs font-bold">
+                        Fees Enabled
+                      </span>
+                      <span className="px-4 py-2 bg-slate-100 text-slate-700 rounded-full text-xs font-bold">
+                        Verified Student
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quick Summary */}
+                  <div className="bg-white p-6 rounded-3xl shadow border">
+                    <h3 className="font-bold text-slate-800 mb-4 text-lg">📊 Quick Summary</h3>
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                      <div className="p-4 bg-indigo-50 rounded-2xl">
+                        <p className="text-xs text-slate-500">Total Payments</p>
+                        <p className="text-xl font-black text-indigo-600">{transactions.length}</p>
+                      </div>
+                      <div className="p-4 bg-green-50 rounded-2xl">
+                        <p className="text-xs text-slate-500">Pending Fees</p>
+                        <p className="text-xl font-black text-green-600">{feeRequests.length}</p>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             )}
+
 
             {activeTab === "fees" && (
               <div className="space-y-6">
@@ -188,7 +283,7 @@ export default function StudentDashboard() {
 
                 {/* --- History Section (Directly under pending fees) --- */}
                 <div className="bg-white rounded-3xl shadow-lg border overflow-hidden">
-                  <div className="p-6 bg-slate-50 border-b font-bold flex items-center gap-2 tracking-widest uppercase text-xs text-indigo-600"><History size={16}/> Transaction History</div>
+                  <div className="p-6 bg-slate-50 border-b font-bold flex items-center gap-2 tracking-widest uppercase text-xs text-indigo-600"><History size={16} /> Transaction History</div>
                   <div className="p-6">
                     {transactions.length === 0 ? <p className="text-center text-slate-400 italic">No previous payments.</p> : (
                       <div className="overflow-x-auto">
@@ -199,7 +294,7 @@ export default function StudentDashboard() {
                               <tr key={t._id}>
                                 <td className="py-4 text-sm font-bold text-slate-600">{new Date(t.date).toLocaleDateString()}</td>
                                 <td className="py-4 font-black text-slate-800">₹{t.amount}</td>
-                                <td className="py-4 text-right"><button onClick={() => downloadSlip(t)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg"><Download size={18}/></button></td>
+                                <td className="py-4 text-right"><button onClick={() => downloadSlip(t)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg"><Download size={18} /></button></td>
                               </tr>
                             ))}
                           </tbody>
@@ -220,12 +315,12 @@ export default function StudentDashboard() {
       {showBankForm && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-md overflow-hidden shadow-2xl">
-            <div className="bg-indigo-600 p-6 text-white flex justify-between items-center"><h3 className="text-xl font-bold flex items-center gap-2"><Landmark size={20}/> Enter Bank Details</h3><button onClick={() => setShowBankForm(false)} className="hover:bg-white/20 p-1 rounded-full"><X size={20}/></button></div>
+            <div className="bg-indigo-600 p-6 text-white flex justify-between items-center"><h3 className="text-xl font-bold flex items-center gap-2"><Landmark size={20} /> Enter Bank Details</h3><button onClick={() => setShowBankForm(false)} className="hover:bg-white/20 p-1 rounded-full"><X size={20} /></button></div>
             <div className="p-8 space-y-4">
-              <input type="text" placeholder="Your Bank Name" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 p-4 rounded-2xl outline-none font-bold" value={manualBankDetails.studentBankName} onChange={(e) => setManualBankDetails({...manualBankDetails, studentBankName: e.target.value})} />
-              <input type="text" placeholder="Account Number" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 p-4 rounded-2xl outline-none font-bold" value={manualBankDetails.accountNumber} onChange={(e) => setManualBankDetails({...manualBankDetails, accountNumber: e.target.value})} />
-              <input type="text" placeholder="UTR / Transaction ID" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 p-4 rounded-2xl outline-none font-bold" value={manualBankDetails.transactionId} onChange={(e) => setManualBankDetails({...manualBankDetails, transactionId: e.target.value})} />
-              <button onClick={() => handlePay(selectedRequestId, "Bank", manualBankDetails)} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-indigo-700 flex items-center justify-center gap-2"><Send size={18}/> Submit Payment</button>
+              <input type="text" placeholder="Your Bank Name" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 p-4 rounded-2xl outline-none font-bold" value={manualBankDetails.studentBankName} onChange={(e) => setManualBankDetails({ ...manualBankDetails, studentBankName: e.target.value })} />
+              <input type="text" placeholder="Account Number" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 p-4 rounded-2xl outline-none font-bold" value={manualBankDetails.accountNumber} onChange={(e) => setManualBankDetails({ ...manualBankDetails, accountNumber: e.target.value })} />
+              <input type="text" placeholder="UTR / Transaction ID" className="w-full bg-slate-50 border-2 border-transparent focus:border-indigo-500 p-4 rounded-2xl outline-none font-bold" value={manualBankDetails.transactionId} onChange={(e) => setManualBankDetails({ ...manualBankDetails, transactionId: e.target.value })} />
+              <button onClick={() => handlePay(selectedRequestId, "Bank", manualBankDetails)} className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-bold shadow-lg hover:bg-indigo-700 flex items-center justify-center gap-2"><Send size={18} /> Submit Payment</button>
             </div>
           </div>
         </div>
